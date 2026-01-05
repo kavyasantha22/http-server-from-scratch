@@ -54,11 +54,27 @@ int main() {
 	
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
+
+	int client_fd;
 	
-	accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+	client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+
+	if (client_fd == -1){
+		printf("Client connection failed: %s \n", strerror(errno));
+		return 1;
+	}
 	printf("Client connected\n");
-	
+
+	const char *init_message = "HTTP/1.1 200 OK\r\n\r\n";
+	if (send(client_fd, init_message, strlen(init_message), 0) == -1){
+		printf("Failed to send welcome message: %s \n",strerror(errno));
+		return 1;
+	}
+	close(client_fd);
+	printf("Client disconnected.\n");
+
 	close(server_fd);
+	printf("Server closed.\n");
 
 	return 0;
 }
