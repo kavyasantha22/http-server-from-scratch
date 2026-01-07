@@ -163,7 +163,6 @@ int main() {
 
 	char *http_request = NULL;
 	size_t http_request_len = 0;
-	read_http_request(client_fd, &http_request, &http_request_len);
 
 	const char *request_line = NULL;
 	size_t request_line_len = 0;
@@ -172,13 +171,6 @@ int main() {
 	const char *body = NULL;
 	size_t body_len = 0;
 
-	parse_http_request(
-		http_request, http_request_len,
-		&request_line, &request_line_len,
-		&headers, &headers_len,
-		&body, &body_len
-	);
-
 	const char *method = NULL;
 	size_t method_len = 0;
 	const char *target = NULL;
@@ -186,26 +178,36 @@ int main() {
 	const char *version = NULL;
 	size_t version_len = 0;
 
-	parse_request_line(
-		request_line, request_line_len,
-		&method, &method_len,
-		&target, &target_len,
-		&version, &version_len
-	);
+	while (1){
+		read_http_request(client_fd, &http_request, &http_request_len);
+		parse_http_request(
+			http_request, http_request_len,
+			&request_line, &request_line_len,
+			&headers, &headers_len,
+			&body, &body_len
+		);
 
-	if (method_len == 3 && memcmp(method, "GET", 3) == 0 && target_len == 1 && memcmp(target, "/", 1) == 0){
-		if (send(client_fd, ok_message, strlen(ok_message), 0) == -1){
-			printf("Failed to send welcome message: %s \n",strerror(errno));
-			return 1;
-		}
-		printf("Correct target and method.");
-	}else{
-		if (send(client_fd, not_found_message, strlen(not_found_message), 0) == -1){
-			printf("Failed to send welcome message: %s \n",strerror(errno));
-			return 1;
-		}
-		printf("NOT Correct target and method.");
+		parse_request_line(
+			request_line, request_line_len,
+			&method, &method_len,
+			&target, &target_len,
+			&version, &version_len
+		);
 
+		if (method_len == 3 && memcmp(method, "GET", 3) == 0 && target_len == 1 && memcmp(target, "/", 1) == 0){
+			if (send(client_fd, ok_message, strlen(ok_message), 0) == -1){
+				printf("Failed to send welcome message: %s \n",strerror(errno));
+				return 1;
+			}
+			printf("Correct target and method.");
+		}else{
+			if (send(client_fd, not_found_message, strlen(not_found_message), 0) == -1){
+				printf("Failed to send welcome message: %s \n",strerror(errno));
+				return 1;
+			}
+			printf("NOT Correct target and method.");
+
+		}
 	}
 
 	close(client_fd);
