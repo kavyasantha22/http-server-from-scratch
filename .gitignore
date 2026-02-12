@@ -53,3 +53,9 @@ dkms.conf
 
 build
 vcpkg_installed
+
+# Codecrafters dirs and files
+./codecrafters
+codecrafters.yml
+vcpkg-configuration.json
+vcpkg.json
