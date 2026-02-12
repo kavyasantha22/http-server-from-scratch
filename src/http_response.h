@@ -69,6 +69,7 @@ int construct_response(
 	char *method, size_t method_len,
 	char *target, size_t target_len,
 	char *version, size_t version_len,
+    char *headers, size_t headers_len,
 	const char **response, size_t *response_len
 );
 

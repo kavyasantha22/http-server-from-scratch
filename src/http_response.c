@@ -6,7 +6,7 @@
 
 size_t parse_target(const char* target, size_t target_len, slice_t *segs, size_t max_segs){
 	if (target_len <= 1 || target[0] != '/') return 0;
-	if (max_segs == 0) return (size_t) - 1;
+	if (max_segs == 0) return (size_t) -1;
 	size_t segs_idx = 0;
 	size_t cur_segs_size = 0;
 	segs[segs_idx].p = &target[1];
@@ -25,22 +25,59 @@ size_t parse_target(const char* target, size_t target_len, slice_t *segs, size_t
 	return segs_idx + 1;
 }
 
+size_t parse_headers(const char* headers, size_t headers_len, slice_t *segs, size_t max_segs){
+    if (headers_len == 0) return 0;
+    if (max_segs == 0) return (size_t) -1;
+    size_t segs_idx = 0;
+    size_t cur_segs_size = 0;
+    segs[segs_idx].p = &headers[0];
+
+    size_t i = 0;
+    while (i + 1 < headers_len){
+        if (i + 2 == headers_len){
+            segs[segs_idx].len = cur_segs_size + 2;
+            break;
+        } 
+        if (headers[i] == '\r' && headers[i + 1] == '\n'){
+            segs[segs_idx].len = cur_segs_size;
+            segs_idx++;
+            i += 2;
+            if (segs_idx >= max_segs) return (size_t) -1;
+            segs[segs_idx].p = &headers[i];
+            cur_segs_size = 0;
+        }else{
+            cur_segs_size++;
+            i++;
+        }
+    }
+    return segs_idx + 1;
+}
+
 
 int construct_response(
 	char *method, size_t method_len,
 	char *target, size_t target_len,
 	char *version, size_t version_len,
+    char *headers, size_t headers_len,
 	const char **response, size_t *response_len
 ){
-
 	const char *ok_message = "HTTP/1.1 200 OK\r\n";
 	size_t ok_len = strlen(ok_message);
 	const char *not_found_message = "HTTP/1.1 404 Not Found\r\n";
 	size_t not_found_len = strlen(not_found_message);
 
-	size_t max_target_segs = 199;
-	slice_t target_segs[max_target_segs];
-	size_t target_size = parse_target(target, target_len, target_segs, max_target_segs);
+	size_t max_segs = 199;
+
+	slice_t target_segs[max_segs];
+	size_t target_size = parse_target(target, target_len, target_segs, max_segs);
+    if (target_size == (size_t)-1) return 1;
+
+    // printf("%zu\n", headers_len);
+    slice_t headers_segs[max_segs];
+    size_t headers_segs_size = parse_headers(headers, headers_len, headers_segs, max_segs);
+    if (headers_segs_size == (size_t)-1) return 1;
+    // printf("%zu\n", headers_segs_size);
+
 	const char *content_type;
 	size_t content_type_len;
 	const char *content_length;	
@@ -56,7 +93,7 @@ int construct_response(
 
 		memcpy(*response, ok_message, ok_len);
 		memcpy(*response + ok_len, "\r\n", 2);
-		printf("Correct target and method.");
+		// printf("Correct target and method.");
 		return 0;
 	}else if (target_size > 0 && target_segs[0].len == 4 && memcmp(target_segs[0].p, "echo", 4) == 0 && target_size >= 2){
 		content_type = "Content-Type: text/plain\r\n";
@@ -69,20 +106,51 @@ int construct_response(
 
 		*response_len = ok_len + content_type_len + content_length_len + 2 + body_len;
 		*response = malloc(*response_len * sizeof(char));
+		if (!*response) return 1;
+
 		memcpy(*response, ok_message, ok_len);
 		memcpy(*response + ok_len, content_type, content_type_len);
 		memcpy(*response + ok_len + content_type_len, content_length_hdr, content_length_len);
 		memcpy(*response + ok_len + content_type_len + content_length_len, "\r\n", 2);
 		memcpy(*response + ok_len + content_type_len + content_length_len + 2, body, body_len);
 		return 0;
-	}else{
+	}else if (target_size > 0 && target_segs[0].len == 10 && memcmp(target_segs[0].p, "user-agent", 10) == 0){
+		content_type = "Content-Type: text/plain\r\n";
+		content_type_len = strlen(content_type);
+
+        size_t user_agent_idx = (size_t)-1;
+        for (size_t i = 0; i < headers_segs_size; i++){
+            if (headers_segs[i].len >= 12 && memcmp(headers_segs[i].p, "User-Agent: ", 12) == 0){
+                user_agent_idx = i;
+                break;
+            }
+        }
+        // printf("%zu\n", user_agent_idx);
+        if (user_agent_idx == (size_t)-1) return 1;
+        body = headers_segs[user_agent_idx].p + 12;
+        body_len = headers_segs[user_agent_idx].len - 12;
+        char content_length_hdr[64];
+		int content_length_len = snprintf(content_length_hdr, sizeof(content_length_hdr), "Content-Length: %zu\r\n", body_len);
+
+        *response_len = ok_len + content_type_len + content_length_len + 2 + body_len;
+		*response = malloc(*response_len * sizeof(char));
+		if (!*response) return 1;
+        // printf("%zu\n", *response_len);
+
+		memcpy(*response, ok_message, ok_len);
+		memcpy(*response + ok_len, content_type, content_type_len);
+		memcpy(*response + ok_len + content_type_len, content_length_hdr, content_length_len);
+		memcpy(*response + ok_len + content_type_len + content_length_len, "\r\n", 2);
+		memcpy(*response + ok_len + content_type_len + content_length_len + 2, body, body_len);
+        return 0;
+    }else{
 		*response_len = not_found_len + strlen("\r\n");
 		*response = malloc(*response_len * sizeof(char));
 		if (!*response) return 1;
 
 		memcpy(*response, not_found_message, not_found_len);
 		memcpy(*response + not_found_len, "\r\n", 2);
-		printf("Target not recognised");
+		// printf("Target not recognised");
 		return 0;
 	}
 }

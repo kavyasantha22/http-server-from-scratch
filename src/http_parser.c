@@ -39,7 +39,6 @@ int parse_http_request(
 }	
 
 
-
 int parse_request_line(
 	const char* buf, size_t len,
 	const char** method, size_t *method_len,

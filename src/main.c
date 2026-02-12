@@ -162,6 +162,7 @@ int main() {
 			method, method_len, 
 			target, target_len,
 			version, version_len,
+			headers, headers_len,
 			&response_message, &response_message_len
 		);
 
