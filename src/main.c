@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "http_parser.h"
 #include "http_response.h"
+#include <pthread.h>
 
 /**
  * read_http_request
@@ -50,6 +51,95 @@ int read_http_request(int client_fd, char **out, size_t *out_len){
 	return n;
 }
 
+
+void *handle_client(void *arg){
+	int client_fd = *(int *) arg;
+	free(arg);
+	char *http_request = NULL;
+	size_t http_request_len = 0;
+
+	const char *request_line = NULL;
+	size_t request_line_len = 0;
+	const char *headers = NULL;
+	size_t headers_len = 0;
+	const char *body = NULL;
+	size_t body_len = 0;
+
+	const char *method = NULL;
+	size_t method_len = 0;
+	const char *target = NULL;
+	size_t target_len = 0;
+	const char *version = NULL;
+	size_t version_len = 0;
+
+	const char *response_message = NULL;
+	size_t response_message_len = 0;
+
+	printf("Client connected\n");
+
+	while (1){
+		int request_value = read_http_request(client_fd, &http_request, &http_request_len);
+
+		if (request_value <= 0){
+			break;
+		} 
+
+		parse_http_request(
+			http_request, http_request_len,
+			&request_line, &request_line_len,
+			&headers, &headers_len,
+			&body, &body_len
+		);
+
+		parse_request_line(
+			request_line, request_line_len,
+			&method, &method_len,
+			&target, &target_len,
+			&version, &version_len
+		);
+
+		int construct_response_val = construct_response(
+			method, method_len, 
+			target, target_len,
+			version, version_len,
+			headers, headers_len,
+			&response_message, &response_message_len
+		);
+
+		if (construct_response_val != 0) {
+			printf("construct_response failed\n");
+			break;
+		}
+
+		int send_value = send(client_fd, response_message, response_message_len, 0);
+
+		if (send_value == -1){
+			printf("Failed to send welcome message: %s \n",strerror(errno));
+			break;
+		}
+
+		free(http_request);
+		http_request = NULL;
+		http_request_len = 0;
+
+		free(response_message);
+		response_message = NULL;
+		response_message_len = 0;
+
+		// comment the break if you want sustained connection
+		break;
+	}
+	free(http_request);
+	http_request = NULL;
+	http_request_len = 0;
+	free(response_message);
+	response_message = NULL;
+	response_message_len = 0;
+	close(client_fd);
+	printf("Client disconnected.\n");
+	return NULL;
+}
+
 /**
  * main
  * Creates a TCP server on 0.0.0.0:4221, accepts a single client connection,
@@ -72,8 +162,6 @@ int main() {
 
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	printf("Logs from your program will appear here!\n");
-
-	// TODO: Uncomment the code below to pass the first stage
 	
 	// server_fd is a file descriptor for the server socket.
 	// client_addr_len is the size of the client's addr
@@ -104,7 +192,7 @@ int main() {
 		return 1;
 	}
 	
-	int connection_backlog = 5;
+	int connection_backlog = 128;
 	if (listen(server_fd, connection_backlog) != 0) {
 		printf("Listen failed: %s \n", strerror(errno));
 		return 1;
@@ -115,67 +203,31 @@ int main() {
 
 	int client_fd;
 
-	char *http_request = NULL;
-	size_t http_request_len = 0;
-
-	const char *request_line = NULL;
-	size_t request_line_len = 0;
-	const char *headers = NULL;
-	size_t headers_len = 0;
-	const char *body = NULL;
-	size_t body_len = 0;
-
-	const char *method = NULL;
-	size_t method_len = 0;
-	const char *target = NULL;
-	size_t target_len = 0;
-	const char *version = NULL;
-	size_t version_len = 0;
-
-	const char *response_message = NULL;
-	size_t response_message_len = 0;
-
 	while (1){
 		client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
 
-		if (client_fd == -1){
-			printf("Client connection failed: %s \n", strerror(errno));
-			return 1;
+		if (client_fd < 0){
+			if (errno == EINTR) continue;
+        	perror("accept");
+        	continue;
 		}
-		printf("Client connected\n");
-		read_http_request(client_fd, &http_request, &http_request_len);
-		parse_http_request(
-			http_request, http_request_len,
-			&request_line, &request_line_len,
-			&headers, &headers_len,
-			&body, &body_len
-		);
 
-		parse_request_line(
-			request_line, request_line_len,
-			&method, &method_len,
-			&target, &target_len,
-			&version, &version_len
-		);
-
-		construct_response(
-			method, method_len, 
-			target, target_len,
-			version, version_len,
-			headers, headers_len,
-			&response_message, &response_message_len
-		);
-
-		int send_value = send(client_fd, response_message, response_message_len, 0);
-
-		if (send_value == -1){
-			printf("Failed to send welcome message: %s \n",strerror(errno));
-			return 1;
+		int *cfd = malloc(sizeof(int));
+		if (!cfd) {
+			printf("failed to malloc client fd");
+			continue;
 		}
+		*cfd = client_fd;
+
+		pthread_t tid;
+		if (pthread_create(&tid, NULL, handle_client, cfd) != 0){
+			free(cfd);
+			close(client_fd);
+			printf("failed to create a seperate thread for the client");
+			continue;
+		}
+		pthread_detach(tid);
 	}
-
-	close(client_fd);
-	printf("Client disconnected.\n");
 
 	close(server_fd);
 	printf("Server closed.\n");
