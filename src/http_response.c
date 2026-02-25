@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #include "http_response.h"
 
 size_t parse_target(const char* target, size_t target_len, slice_t *segs, size_t max_segs){
@@ -53,19 +57,27 @@ size_t parse_headers(const char* headers, size_t headers_len, slice_t *segs, siz
     return segs_idx + 1;
 }
 
+static int construct_404_not_found(const char **response, size_t *response_len) {
+	const char *not_found_message = "HTTP/1.1 404 Not Found\r\n";
+	size_t not_found_len = strlen(not_found_message);
+    *response_len = not_found_len + 2;
+    *response = malloc(*response_len);
+    if (!*response) return 1;
+    memcpy(*response, not_found_message, not_found_len);
+    memcpy(*response + not_found_len, "\r\n", 2);
+    return 0;
+}
 
 int construct_response(
 	char *method, size_t method_len,
 	char *target, size_t target_len,
 	char *version, size_t version_len,
     char *headers, size_t headers_len,
+	const char* files_dir, 
 	const char **response, size_t *response_len
 ){
 	const char *ok_message = "HTTP/1.1 200 OK\r\n";
 	size_t ok_len = strlen(ok_message);
-	const char *not_found_message = "HTTP/1.1 404 Not Found\r\n";
-	size_t not_found_len = strlen(not_found_message);
-
 	size_t max_segs = 199;
 
 	slice_t target_segs[max_segs];
@@ -143,14 +155,87 @@ int construct_response(
 		memcpy(*response + ok_len + content_type_len + content_length_len, "\r\n", 2);
 		memcpy(*response + ok_len + content_type_len + content_length_len + 2, body, body_len);
         return 0;
-    }else{
-		*response_len = not_found_len + strlen("\r\n");
-		*response = malloc(*response_len * sizeof(char));
-		if (!*response) return 1;
+    } else if (target_size >= 2 && target_segs[0].len == 5 && memcmp(target_segs[0].p, "files", 5) == 0){
+		content_type = "Content-Type: application/octet-stream\r\n";
+		content_type_len = strlen(content_type);
 
-		memcpy(*response, not_found_message, not_found_len);
-		memcpy(*response + not_found_len, "\r\n", 2);
-		// printf("Target not recognised");
+		size_t files_name_len = target_segs[1].len;
+		char *files_name = malloc(files_name_len + 1);
+		if (!files_name) {
+			return 1;
+		}
+
+		memcpy(files_name, target_segs[1].p, files_name_len);
+		files_name[files_name_len] = '\0';
+
+		size_t files_dir_len = strlen(files_dir);
+		char* path = malloc(files_dir_len + files_name_len + 1);
+		if (!path){
+			free(files_name);
+			return 1;
+		}
+
+		memcpy(path, files_dir, files_dir_len);
+		memcpy(path + files_dir_len, files_name, files_name_len);
+		path[files_dir_len + files_name_len] = '\0';
+
+		int fd = open(path, O_RDONLY);
+		if (fd < 0){
+			free(path);
+			free(files_name);
+			return construct_404_not_found(response, response_len);
+		}
+		free(path);
+		free(files_name);
+
+		struct stat st;
+		if (fstat(fd, &st) == -1){
+			close(fd);
+			return 1;
+		}
+		size_t file_size = (size_t) st.st_size;
+		char *file_buf = malloc(file_size);
+		if (!file_buf){
+			close(fd);
+			return 1;
+		}
+		size_t offset = 0;
+		while (offset < file_size){
+			// syntax is file descriptor, read to where, and how many bytes
+			ssize_t n = read(fd, file_buf + offset, file_size - offset);
+			if (n <= 0){
+				free(file_buf);
+				close(fd);
+				return 1;
+			}
+			offset += (size_t)n;
+		}
+		close(fd);
+
+		// build headers
+		char content_length_hdr[64];
+		int content_length_len = snprintf(content_length_hdr, sizeof(content_length_hdr), "Content-Length: %zu\r\n", file_size);
+
+		// construct full response
+		*response_len = ok_len + content_type_len + content_length_len + 2 + file_size;
+		*response = malloc(*response_len);
+		if (!*response) {
+			free(file_buf);
+			return 1;
+		}
+		size_t pos = 0;
+		memcpy(*response + pos, ok_message, ok_len); 
+		pos += ok_len;
+		memcpy(*response + pos, content_type, content_type_len); 
+		pos += content_type_len;
+		memcpy(*response + pos, content_length_hdr, content_length_len);
+		pos += content_length_len;
+		memcpy(*response + pos, "\r\n", 2);
+		pos += 2;
+		memcpy(*response + pos, file_buf, file_size);
+		pos += file_size;
+		free(file_buf);
 		return 0;
-	}
+
+	}else return construct_404_not_found(response, response_len);
 }

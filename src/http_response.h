@@ -70,6 +70,7 @@ int construct_response(
 	char *target, size_t target_len,
 	char *version, size_t version_len,
     char *headers, size_t headers_len,
+	const char *files_dir,
 	const char **response, size_t *response_len
 );
 

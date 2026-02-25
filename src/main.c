@@ -10,6 +10,8 @@
 #include "http_response.h"
 #include <pthread.h>
 
+static const char *g_files_dir = NULL;
+
 /**
  * read_http_request
  * Reads raw bytes from client_fd into a newly malloc'd buffer (single recv call).
@@ -103,6 +105,7 @@ void *handle_client(void *arg){
 			target, target_len,
 			version, version_len,
 			headers, headers_len,
+			g_files_dir,
 			&response_message, &response_message_len
 		);
 
@@ -155,7 +158,7 @@ void *handle_client(void *arg){
  * - Current design allocates per request; caller should free buffers to avoid leaks.
  * - send() may send fewer bytes than requested; robust servers loop until all sent.
  */
-int main() {
+int main(int argc, char **argv) {
 	// Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
@@ -196,6 +199,18 @@ int main() {
 	if (listen(server_fd, connection_backlog) != 0) {
 		printf("Listen failed: %s \n", strerror(errno));
 		return 1;
+	}
+
+	// process direcoty argument if exist
+	for (int i = 1; i < argc; i++){
+		if (strcmp(argv[i], "--directory") == 0 && i + 1 < argc){
+			g_files_dir = argv[i + 1];
+			i++;
+		}
+	}
+
+	if (g_files_dir){
+		printf("files_dir set to: %s\n", g_files_dir);
 	}
 	
 	printf("Waiting for a client to connect...\n");
