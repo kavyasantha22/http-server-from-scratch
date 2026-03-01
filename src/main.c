@@ -120,6 +120,8 @@ void *handle_client(void *arg){
 			printf("Failed to send welcome message: %s \n",strerror(errno));
 			break;
 		}
+		printf("SENT!\n");
+		printf("%.*s", (int)response_message_len, response_message);
 
 		free(http_request);
 		http_request = NULL;

@@ -1,37 +1,77 @@
-[![progress-banner](https://backend.codecrafters.io/progress/http-server/0e4155cd-5a0d-45eb-8410-988b96f4f3a4)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# HTTP Server in C
 
-This is a starting point for C solutions to the
-["Build Your Own HTTP server" Challenge](https://app.codecrafters.io/courses/http-server/overview).
+> **⚠️ This project is currently in development. Many more features will be added.**
 
-[HTTP](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol) is the
-protocol that powers the web. In this challenge, you'll build a HTTP/1.1 server
-that is capable of serving multiple clients.
+A lightweight HTTP/1.1 server built from scratch in C using POSIX sockets. The server handles concurrent client connections via multithreading and supports basic request parsing, routing, and response construction — all without external HTTP libraries.
 
-Along the way you'll learn about TCP servers,
-[HTTP request syntax](https://www.w3.org/Protocols/rfc2616/rfc2616-sec5.html),
-and more.
+## Features
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+- **TCP socket server** listening on `0.0.0.0:4221`
+- **Multithreaded** — each client connection is handled in its own thread via `pthreads`
+- **HTTP/1.1 request parsing** — splits raw requests into request line, headers, and body
+- **Route handling:**
+  - `GET /` — returns `200 OK`
+  - `GET /echo/<string>` — echoes back `<string>` as `text/plain`
+  - `GET /user-agent` — returns the client's `User-Agent` header value
+  - `GET /files/<filename>` — serves a file from a configurable directory as `application/octet-stream`
+  - All other routes return `404 Not Found`
+- **Static file serving** from a directory specified via the `--directory` flag
 
-# Passing the first stage
+## Project Structure
 
-The entry point for your HTTP server implementation is in `src/main.c`. Study
-and uncomment the relevant code, and push your changes to pass the first stage:
-
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+```
+src/
+├── main.c            # Entry point, socket setup, accept loop, client thread handler
+├── http_parser.c     # HTTP request & request-line parsing
+├── http_parser.h
+├── http_response.c   # Response construction & routing logic
+└── http_response.h
+CMakeLists.txt        # CMake build configuration
 ```
 
-Time to move on to the next stage!
+## Prerequisites
 
-# Stage 2 & beyond
+- A C compiler with C23 support (e.g. GCC 13+, Clang 16+)
+- [CMake](https://cmake.org/) 3.13 or newer
+- POSIX-compatible OS (Linux, macOS)
 
-Note: This section is for stages 2 and beyond.
+## Building
 
-1. Ensure you have `cmake` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `src/main.c`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+```bash
+cmake -B build -S .
+cmake --build ./build
+```
+
+## Running
+
+Start the server:
+
+```bash
+./build/http-server
+```
+
+To serve files from a specific directory:
+
+```bash
+./build/http-server --directory /path/to/files/
+```
+
+The server will start listening on **port 4221**. You can test it with `curl`:
+
+```bash
+# Root route
+curl -v http://localhost:4221/
+
+# Echo route
+curl -v http://localhost:4221/echo/hello
+
+# User-Agent route
+curl -v http://localhost:4221/user-agent
+
+# File serving (requires --directory flag)
+curl -v http://localhost:4221/files/example.txt
+```
+
+## License
+
+This project is for educational purposes.

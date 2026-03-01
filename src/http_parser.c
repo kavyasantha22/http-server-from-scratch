@@ -35,6 +35,30 @@ int parse_http_request(
 	}
 	if (state != 2) return - 1;
 	*body_len = len - last_boundary;
+
+	// char *temp = *request_line;
+	// for (size_t i = 0; i < *request_line_len; i++) {
+	// 	if (*(temp + i) == '\r') printf("\\r");
+	// 	else if (*(temp + i) == '\n') printf("\\n\n"); // also break line visually
+	// 	else putchar(*(temp + i));
+	// }
+	// printf("\n");
+	// printf("\n");
+	// temp = *headers;
+	// for (size_t i = 0; i < *headers_len; i++) {
+	// 	if (*(temp + i) == '\r') printf("\\r");
+	// 	else if (*(temp + i) == '\n') printf("\\n\n"); // also break line visually
+	// 	else putchar(*(temp + i));
+	// }
+	// printf("\n");
+	// printf("\n");
+	// temp = *body;
+	// for (size_t i = 0; i < *body_len; i++) {
+	// 	if (*(temp + i) == '\r') printf("\\r");
+	// 	else if (*(temp + i) == '\n') printf("\\n\n"); // also break line visually
+	// 	else putchar(*(temp + i));
+	// }
+
 	return 0;
 }	
 

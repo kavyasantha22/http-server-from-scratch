@@ -62,6 +62,7 @@ static int construct_404_not_found(const char **response, size_t *response_len) 
 	size_t not_found_len = strlen(not_found_message);
     *response_len = not_found_len + 2;
     *response = malloc(*response_len);
+	printf("FUCK OFF inside 404\n");
     if (!*response) return 1;
     memcpy(*response, not_found_message, not_found_len);
     memcpy(*response + not_found_len, "\r\n", 2);
@@ -76,6 +77,7 @@ int construct_response(
 	const char* files_dir, 
 	const char **response, size_t *response_len
 ){
+	// printf("FUCK OFF\n");
 	const char *ok_message = "HTTP/1.1 200 OK\r\n";
 	size_t ok_len = strlen(ok_message);
 	size_t max_segs = 199;
@@ -97,6 +99,7 @@ int construct_response(
 	char *body;
 	size_t body_len;
 
+	// printf("FUCK OFF\n");
 
 	if (method_len == 3 && memcmp(method, "GET", 3) == 0 && target_len == 1 && memcmp(target, "/", 1) == 0){
 		*response_len = ok_len + strlen("\r\n");
@@ -107,7 +110,7 @@ int construct_response(
 		memcpy(*response + ok_len, "\r\n", 2);
 		// printf("Correct target and method.");
 		return 0;
-	}else if (target_size > 0 && target_segs[0].len == 4 && memcmp(target_segs[0].p, "echo", 4) == 0 && target_size >= 2){
+	}else if (memcmp(method, "GET", 3) == 0 && target_size > 0 && target_segs[0].len == 4 && memcmp(target_segs[0].p, "echo", 4) == 0 && target_size >= 2){
 		content_type = "Content-Type: text/plain\r\n";
 		content_type_len = strlen(content_type);
 		body = target_segs[1].p;
@@ -126,7 +129,7 @@ int construct_response(
 		memcpy(*response + ok_len + content_type_len + content_length_len, "\r\n", 2);
 		memcpy(*response + ok_len + content_type_len + content_length_len + 2, body, body_len);
 		return 0;
-	}else if (target_size > 0 && target_segs[0].len == 10 && memcmp(target_segs[0].p, "user-agent", 10) == 0){
+	}else if (memcmp(method, "GET", 3) == 0 && target_size > 0 && target_segs[0].len == 10 && memcmp(target_segs[0].p, "user-agent", 10) == 0){
 		content_type = "Content-Type: text/plain\r\n";
 		content_type_len = strlen(content_type);
 
@@ -155,7 +158,7 @@ int construct_response(
 		memcpy(*response + ok_len + content_type_len + content_length_len, "\r\n", 2);
 		memcpy(*response + ok_len + content_type_len + content_length_len + 2, body, body_len);
         return 0;
-    } else if (target_size >= 2 && target_segs[0].len == 5 && memcmp(target_segs[0].p, "files", 5) == 0){
+    } else if (memcmp(method, "GET", 3) == 0 && target_size >= 2 && target_segs[0].len == 5 && memcmp(target_segs[0].p, "files", 5) == 0){
 		content_type = "Content-Type: application/octet-stream\r\n";
 		content_type_len = strlen(content_type);
 
@@ -236,6 +239,39 @@ int construct_response(
 		pos += file_size;
 		free(file_buf);
 		return 0;
+	}else if (memcmp(method, "POST", 4) == 0 && target_size >= 2 && target_segs[0].len == 5 && memcmp(target_segs[0].p, "files", 5) == 0) {
+		size_t files_name_len = target_segs[1].len;
+		char *files_name = malloc(files_name_len + 1);
+		if (!files_name) {
+			return 1;
+		}
 
-	}else return construct_404_not_found(response, response_len);
+		memcpy(files_name, target_segs[1].p, files_name_len);
+		files_name[files_name_len] = '\0';
+
+		size_t files_dir_len = strlen(files_dir);
+		char* path = malloc(files_dir_len + files_name_len + 1);
+		if (!path){
+			free(files_name);
+			return 1;
+		}
+
+		memcpy(path, files_dir, files_dir_len);
+		memcpy(path + files_dir_len, files_name, files_name_len);
+		path[files_dir_len + files_name_len] = '\0';
+
+		char* file_content_type;
+		size_t file_content_length = (size_t)-1;
+        for (size_t i = 0; i < headers_segs_size; i++){
+            if (headers_segs[i].len >= 12 && memcmp(headers_segs[i].p, "User-Agent: ", 12) == 0){
+                user_agent_idx = i;
+                break;
+            }
+        }
+
+		FILE *f = fopen(path, "w");
+		fwrite()
+
+
+	} else return construct_404_not_found(response, response_len);
 }
