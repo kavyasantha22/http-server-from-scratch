@@ -35,26 +35,26 @@ CMakeLists.txt        # CMake build configuration
 - [CMake](https://cmake.org/) 3.13 or newer
 - POSIX-compatible OS (Linux, macOS)
 
-## Building
+## Building & Running
+
+The included `run.sh` script compiles and runs the server in one step:
 
 ```bash
-cmake -B build -S .
-cmake --build ./build
+./run.sh
 ```
 
-## Running
-
-Start the server:
+To serve files from a specific directory, pass the `--directory` flag:
 
 ```bash
-./build/http-server
+./run.sh --directory /path/to/files/
 ```
 
-To serve files from a specific directory:
-
-```bash
-./build/http-server --directory /path/to/files/
-```
+> **Note:** If you prefer to build and run manually:
+> ```bash
+> cmake -B build -S .
+> cmake --build ./build
+> ./build/http-server --directory /path/to/files/
+> ```
 
 The server will start listening on **port 4221**. You can test it with `curl`:
 
