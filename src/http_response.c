@@ -7,75 +7,51 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "http_response.h"
+#include "http_parser.h"
 
-size_t parse_target(const char* target, size_t target_len, slice_t *segs, size_t max_segs){
-	if (target_len <= 1 || target[0] != '/') return 0;
-	if (max_segs == 0) return (size_t) -1;
-	size_t segs_idx = 0;
-	size_t cur_segs_size = 0;
-	segs[segs_idx].p = &target[1];
-
-	for (size_t i = 1; i < target_len; i++){
-		if (target[i] == '/' && i != target_len - 1) {
-			if (segs_idx + 1 >= max_segs) return (size_t) - 1;
-			segs[segs_idx].len = cur_segs_size;
-			segs_idx++;
-			segs[segs_idx].p = &target[i + 1];
-			cur_segs_size = 0;
-		}
-		else cur_segs_size++;
-	}
-	segs[segs_idx].len = cur_segs_size;
-	return segs_idx + 1;
-}
-
-size_t parse_headers(const char* headers, size_t headers_len, slice_t *segs, size_t max_segs){
-    if (headers_len == 0) return 0;
-    if (max_segs == 0) return (size_t) -1;
-    size_t segs_idx = 0;
-    size_t cur_segs_size = 0;
-    segs[segs_idx].p = &headers[0];
-
-    size_t i = 0;
-    while (i + 1 < headers_len){
-        if (i + 2 == headers_len){
-            segs[segs_idx].len = cur_segs_size + 2;
-            break;
-        } 
-        if (headers[i] == '\r' && headers[i + 1] == '\n'){
-            segs[segs_idx].len = cur_segs_size;
-            segs_idx++;
-            i += 2;
-            if (segs_idx >= max_segs) return (size_t) -1;
-            segs[segs_idx].p = &headers[i];
-            cur_segs_size = 0;
-        }else{
-            cur_segs_size++;
-            i++;
-        }
-    }
-    return segs_idx + 1;
-}
-
-static int construct_404_not_found(const char **response, size_t *response_len) {
+static int construct_404_not_found(char **response, size_t *response_len) {
 	const char *not_found_message = "HTTP/1.1 404 Not Found\r\n";
 	size_t not_found_len = strlen(not_found_message);
     *response_len = not_found_len + 2;
     *response = malloc(*response_len);
-	printf("FUCK OFF inside 404\n");
     if (!*response) return 1;
     memcpy(*response, not_found_message, not_found_len);
     memcpy(*response + not_found_len, "\r\n", 2);
     return 0;
 }
 
+
+static int construct_500_internal_server_error(char **response, size_t *response_len){
+	const char *internal_server_error_message = "HTTP/1.1 500 Internal Server Error\r\n";
+	size_t internal_server_error_len = strlen(internal_server_error_message);
+    *response_len = internal_server_error_len + 2;
+    *response = malloc(*response_len);
+    if (!*response) return 1;
+    memcpy(*response, internal_server_error_message, internal_server_error_len);
+    memcpy(*response + internal_server_error_len, "\r\n", 2);
+    return 0;
+}
+
+
+static int construct_201_created(char **response, size_t *response_len){
+	const char *created_message = "HTTP/1.1 201 Created\r\n";
+	size_t created_len = strlen(created_message);
+    *response_len = created_len + 2;
+    *response = malloc(*response_len);
+    if (!*response) return 1;
+    memcpy(*response, created_message, created_len);
+    memcpy(*response + created_len, "\r\n", 2);
+    return 0;
+}
+
 int construct_response(
-	char *method, size_t method_len,
-	char *target, size_t target_len,
-	char *version, size_t version_len,
-    char *headers, size_t headers_len,
+	const char *method, size_t method_len,
+	const char *target, size_t target_len,
+	const char *version, size_t version_len,
+    const char *headers, size_t headers_len,
+	const char* body, size_t body_len,
 	const char* files_dir, 
-	const char **response, size_t *response_len
+	char **response, size_t *response_len
 ){
 	// printf("FUCK OFF\n");
 	const char *ok_message = "HTTP/1.1 200 OK\r\n";
@@ -96,8 +72,8 @@ int construct_response(
 	size_t content_type_len;
 	const char *content_length;	
 	size_t content_length_len;
-	char *body;
-	size_t body_len;
+	char *response_body;
+	size_t response_body_len;
 
 	// printf("FUCK OFF\n");
 
@@ -113,13 +89,13 @@ int construct_response(
 	}else if (memcmp(method, "GET", 3) == 0 && target_size > 0 && target_segs[0].len == 4 && memcmp(target_segs[0].p, "echo", 4) == 0 && target_size >= 2){
 		content_type = "Content-Type: text/plain\r\n";
 		content_type_len = strlen(content_type);
-		body = target_segs[1].p;
-		body_len = target_segs[1].len;
+		response_body = target_segs[1].p;
+		response_body_len = target_segs[1].len;
 
 		char content_length_hdr[64];
-		int content_length_len = snprintf(content_length_hdr, sizeof(content_length_hdr), "Content-Length: %zu\r\n", body_len);
+		int content_length_len = snprintf(content_length_hdr, sizeof(content_length_hdr), "Content-Length: %zu\r\n", response_body_len);
 
-		*response_len = ok_len + content_type_len + content_length_len + 2 + body_len;
+		*response_len = ok_len + content_type_len + content_length_len + 2 + response_body_len;
 		*response = malloc(*response_len * sizeof(char));
 		if (!*response) return 1;
 
@@ -127,7 +103,7 @@ int construct_response(
 		memcpy(*response + ok_len, content_type, content_type_len);
 		memcpy(*response + ok_len + content_type_len, content_length_hdr, content_length_len);
 		memcpy(*response + ok_len + content_type_len + content_length_len, "\r\n", 2);
-		memcpy(*response + ok_len + content_type_len + content_length_len + 2, body, body_len);
+		memcpy(*response + ok_len + content_type_len + content_length_len + 2, response_body, response_body_len);
 		return 0;
 	}else if (memcmp(method, "GET", 3) == 0 && target_size > 0 && target_segs[0].len == 10 && memcmp(target_segs[0].p, "user-agent", 10) == 0){
 		content_type = "Content-Type: text/plain\r\n";
@@ -142,12 +118,12 @@ int construct_response(
         }
         // printf("%zu\n", user_agent_idx);
         if (user_agent_idx == (size_t)-1) return 1;
-        body = headers_segs[user_agent_idx].p + 12;
-        body_len = headers_segs[user_agent_idx].len - 12;
+        response_body = headers_segs[user_agent_idx].p + 12;
+        response_body_len = headers_segs[user_agent_idx].len - 12;
         char content_length_hdr[64];
-		int content_length_len = snprintf(content_length_hdr, sizeof(content_length_hdr), "Content-Length: %zu\r\n", body_len);
+		int content_length_len = snprintf(content_length_hdr, sizeof(content_length_hdr), "Content-Length: %zu\r\n", response_body_len);
 
-        *response_len = ok_len + content_type_len + content_length_len + 2 + body_len;
+        *response_len = ok_len + content_type_len + content_length_len + 2 + response_body_len;
 		*response = malloc(*response_len * sizeof(char));
 		if (!*response) return 1;
         // printf("%zu\n", *response_len);
@@ -156,7 +132,7 @@ int construct_response(
 		memcpy(*response + ok_len, content_type, content_type_len);
 		memcpy(*response + ok_len + content_type_len, content_length_hdr, content_length_len);
 		memcpy(*response + ok_len + content_type_len + content_length_len, "\r\n", 2);
-		memcpy(*response + ok_len + content_type_len + content_length_len + 2, body, body_len);
+		memcpy(*response + ok_len + content_type_len + content_length_len + 2, response_body, response_body_len);
         return 0;
     } else if (memcmp(method, "GET", 3) == 0 && target_size >= 2 && target_segs[0].len == 5 && memcmp(target_segs[0].p, "files", 5) == 0){
 		content_type = "Content-Type: application/octet-stream\r\n";
@@ -240,38 +216,37 @@ int construct_response(
 		free(file_buf);
 		return 0;
 	}else if (memcmp(method, "POST", 4) == 0 && target_size >= 2 && target_segs[0].len == 5 && memcmp(target_segs[0].p, "files", 5) == 0) {
-		size_t files_name_len = target_segs[1].len;
-		char *files_name = malloc(files_name_len + 1);
-		if (!files_name) {
-			return 1;
-		}
-
-		memcpy(files_name, target_segs[1].p, files_name_len);
-		files_name[files_name_len] = '\0';
-
 		size_t files_dir_len = strlen(files_dir);
-		char* path = malloc(files_dir_len + files_name_len + 1);
-		if (!path){
-			free(files_name);
+
+		char file_name[files_dir_len + target_segs[1].len + 1];
+		memcpy(file_name, files_dir, files_dir_len); 
+		memcpy(file_name + files_dir_len, target_segs[1].p, target_segs[1].len);
+
+		file_name[files_dir_len + target_segs[1].len] = '\0';
+		
+		int write_fd = open(file_name, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		if (write_fd < 0) {
+			construct_500_internal_server_error(response, response_len);
 			return 1;
 		}
 
-		memcpy(path, files_dir, files_dir_len);
-		memcpy(path + files_dir_len, files_name, files_name_len);
-		path[files_dir_len + files_name_len] = '\0';
+		int bytes_written = write(write_fd, body, body_len);
+		if (bytes_written != body_len){
+			close(write_fd);
+			construct_500_internal_server_error(response, response_len);
+			return 1;
+		}
+		close(write_fd);
 
-		char* file_content_type;
-		size_t file_content_length = (size_t)-1;
-        for (size_t i = 0; i < headers_segs_size; i++){
-            if (headers_segs[i].len >= 12 && memcmp(headers_segs[i].p, "User-Agent: ", 12) == 0){
-                user_agent_idx = i;
-                break;
-            }
-        }
-
-		FILE *f = fopen(path, "w");
-		fwrite()
-
-
+		return construct_201_created(response, response_len);
 	} else return construct_404_not_found(response, response_len);
+}
+
+
+int compress_body(
+	char* response_body, 
+	size_t response_body_len, 
+	slice_t
+){
+	
 }

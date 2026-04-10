@@ -6,9 +6,10 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "http_parser.h"
 #include "http_response.h"
-#include <pthread.h>
+#include "server.h"
 
 static const char *g_files_dir = NULL;
 
@@ -31,26 +32,58 @@ static const char *g_files_dir = NULL;
  * requests may require repeated reads to be fully robust.
  */
 int read_http_request(int client_fd, char **out, size_t *out_len){
-	size_t cap = 4095;
-	*out = malloc((cap + 1) * sizeof(char));
+	int header_end_found = -1;
+	int bytes_read = 0;
+	*out = malloc(MAX_HEADER_SIZE);
+
+	while (bytes_read < 8192 && header_end_found == -1){
+		ssize_t cur_bytes_read = recv(client_fd, *out + bytes_read, MAX_HEADER_SIZE - bytes_read, 0);
+		if (cur_bytes_read < 0) return -1;
+
+		header_end_found = contains_header_end(*out + bytes_read, *out + bytes_read + cur_bytes_read);
+		bytes_read += cur_bytes_read;
+	}
+	if (header_end_found == -1){
+		printf("HEADER IS TOO BIG.");
+		return -1;
+	}
+
+	size_t request_line_len;
+	const char* unused_buf;
+	size_t unused_sze;
+	const char *headers;
+	size_t headers_len;
+	parse_http_request(*out, bytes_read, &unused_buf, &request_line_len, &headers, &headers_len, &unused_buf, &unused_sze);
+
+	int body_bytes_read = bytes_read - (header_end_found + 4);
+
+	size_t headers_segs_len = 1000;
+	slice_t* headers_segs = malloc(headers_segs_len * sizeof(slice_t));
+	if (!headers_segs) return -1;
+
+	headers_segs_len = parse_headers(headers, headers_len, headers_segs, headers_segs_len);
+	if (headers_segs_len == (size_t)-1) return -1;
+
+	headers_segs = realloc(headers_segs, headers_segs_len * sizeof(slice_t));
+	if (!headers_segs) return -1;
+
+	// parse headers
+	int body_len = get_content_length(headers_segs, headers_segs_len);
+
+	*out_len = (header_end_found + 4) + body_len;
+	*out = realloc(*out, *out_len);
 	if (!*out) return -1;
 
-	ssize_t n = recv(client_fd, *out, cap, 0);
-	if (n < 0){
-		printf("Receiving message failed: %s", strerror(errno));
-		free(*out);
-		*out = NULL;
-		*out_len = 0;
-		return -1;
-	}else if (n == 0){
-		printf("Socket closed.");
-		(*out)[0] = '\0';
-		*out_len = 0;
-		return 0;
+
+	while (body_bytes_read < body_len){
+		ssize_t cur_bytes_read = recv(client_fd, *out + bytes_read, MAX_HEADER_SIZE - bytes_read, 0);
+		if (cur_bytes_read < 0) return -1;
+
+		bytes_read += cur_bytes_read;
+		body_bytes_read += cur_bytes_read;
 	}
-	(*out)[n] = '\0';
-	*out_len = (size_t) n;
-	return n;
+
+	return bytes_read;
 }
 
 
@@ -74,7 +107,7 @@ void *handle_client(void *arg){
 	const char *version = NULL;
 	size_t version_len = 0;
 
-	const char *response_message = NULL;
+	char *response_message = NULL;
 	size_t response_message_len = 0;
 
 	printf("Client connected\n");
@@ -105,6 +138,7 @@ void *handle_client(void *arg){
 			target, target_len,
 			version, version_len,
 			headers, headers_len,
+			body, body_len,
 			g_files_dir,
 			&response_message, &response_message_len
 		);
@@ -160,7 +194,7 @@ void *handle_client(void *arg){
  * - Current design allocates per request; caller should free buffers to avoid leaks.
  * - send() may send fewer bytes than requested; robust servers loop until all sent.
  */
-int main(int argc, char **argv) {
+int start_server(int argc, char **argv) {
 	// Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
@@ -221,7 +255,7 @@ int main(int argc, char **argv) {
 	int client_fd;
 
 	while (1){
-		client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+		client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *)&client_addr_len);
 
 		if (client_fd < 0){
 			if (errno == EINTR) continue;

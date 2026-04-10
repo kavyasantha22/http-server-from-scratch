@@ -59,3 +59,8 @@ vcpkg_installed
 codecrafters.yml
 vcpkg-configuration.json
 vcpkg.json
+.codecrafters/
+
+# build file
+build/
+
