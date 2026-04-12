@@ -2,6 +2,7 @@
 #define HTTP_PARSER_H
 #include <stddef.h>
 #include <stdbool.h>
+#include <sys/types.h>
 
 /*
  * ==========================================================================
@@ -213,7 +214,7 @@ int contains_header_end(const char *start, const char *end);
 
 size_t get_content_length(const slice_t* headers_segs, size_t headers_segs_size);
 
-size_t parse_accept_encodings(
+ssize_t parse_accept_encodings(
 	const char *accepted_encodings,
 	size_t accepted_encodings_size,
 	slice_t *segs,

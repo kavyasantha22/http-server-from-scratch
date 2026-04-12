@@ -180,14 +180,14 @@ size_t parse_headers(const char* headers, size_t headers_len, slice_t *segs, siz
 }
 
 
-size_t parse_accept_encodings(
+ssize_t parse_accept_encodings(
 	const char *accepted_encodings,
 	size_t accepted_encodings_size,
 	slice_t *segs,
 	size_t max_segs
 ){	
 	if (accepted_encodings_size == 0) return 0;
-	if (max_segs == 0) return (size_t) -1;
+	if (max_segs == 0) return -1;
 
 	if (accepted_encodings_size > 17 && memcmp(accepted_encodings, "Accept-Encoding: ", 17) == 0){
 		size_t segs_idx = 0;
@@ -198,9 +198,9 @@ size_t parse_accept_encodings(
 		while (i < accepted_encodings_size){
 			if (accepted_encodings[i] == ','){
             	segs[segs_idx].len = cur_segs_size;
-
-            	if (segs_idx >= max_segs) return (size_t) -1;
 				segs_idx++;
+
+            	if (segs_idx >= max_segs) return -1;
 				i += 2;
             	segs[segs_idx].p = &accepted_encodings[i];
 				cur_segs_size = 0;

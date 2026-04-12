@@ -1,7 +1,21 @@
 #ifndef HTTP_RESPONSE_H
 #define HTTP_RESPONSE_H
 #include <stddef.h>
+#include "http_parser.h"
 
+typedef struct {
+	const char *method;
+	size_t method_len;
+	const slice_t *target_segs;
+	size_t target_segs_len;
+	const slice_t *headers_segs;
+	size_t headers_segs_len;
+	const char* body;
+	size_t body_len;
+	const char* files_dir;
+	char **response;
+	size_t *response_len;
+} http_request_t;
 
 /* -----------------------------------------------------------------------
  * construct_response
