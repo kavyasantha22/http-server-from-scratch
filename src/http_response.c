@@ -352,11 +352,3 @@ int construct_response(
 		);
 	}
 }
-
-
-// int compress_body(
-// 	char* response_body, 
-// 	size_t response_body_len, 
-// ){
-	
-// }

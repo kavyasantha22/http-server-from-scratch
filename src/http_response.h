@@ -25,7 +25,7 @@ typedef struct {
  * ASSUMES (inputs -- all slices come from the parser, see http_parser.h):
  *
  *   method / method_len:
- *     - e.g. "GET", "POST"
+ *     - e.g. "GET", "POST"1
  *     - No spaces, no CRLF.
  *
  *   target / target_len:
