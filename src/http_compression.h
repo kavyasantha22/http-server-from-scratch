@@ -19,6 +19,7 @@ typedef struct {
     } data;
 } lz_token_t;
 
+
 int build_gzip_encoded_body(
     const char *body, size_t body_len,
     char **encoded_body, size_t* encoded_body_len
@@ -28,6 +29,8 @@ int lz_tokenisation(
     const char *body, size_t body_len,
     lz_token_t **deflated_body, size_t *deflated_body_len
 );
+
+
 
 #endif
 
