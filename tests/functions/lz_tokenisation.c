@@ -1,4 +1,4 @@
-#include "../../src/http_compression.h"
+#include "../../src/gzip_compression.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

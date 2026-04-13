@@ -16,16 +16,16 @@ int bw_write_bits(bit_writer_t *bw, uint16_t value, uint8_t nbits){
     while (nbits > 8 - bw->bits_filled){
         if (bw->pos == bw->capacity) return bits_written;
         cur_filled = 8 - bw->bits_filled;
-        cur_written = value & ((1 << cur_filled) - 1);
+        cur_written = (value & ((1 << cur_filled) - 1));
 
-        bw->pending_byte = bw->pending_byte | (cur_written << bw->bits_filled);
+        bw->pending_byte |= (cur_written << bw->bits_filled);
         bw->bits_filled = 8;
         bw_flush(bw);
 
         value = value >> cur_filled;
         nbits -= cur_filled;
 
-        bits_written += cur_written;
+        bits_written += cur_filled;
     }
 
     bw->pending_byte = bw->pending_byte | (value << bw->bits_filled);
@@ -36,6 +36,8 @@ int bw_write_bits(bit_writer_t *bw, uint16_t value, uint8_t nbits){
 }
 
 int bw_flush(bit_writer_t *bw){
+    if (bw->bits_filled == 0) return 0;
+
     bw->buf[bw->pos] = bw->pending_byte;
     bw->pos++;
     uint8_t bits_written = bw->bits_filled;
