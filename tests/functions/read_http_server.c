@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include "../../src/server.h"
 #include "../../src/http_parser.h"
+#include "../../src/http_response.h"
 
 /*
  * Helper: create a socketpair, write `req` (req_len bytes) to sv[0],
@@ -315,6 +316,41 @@ static void test_binary_body(void)
     printf("PASS: test_binary_body\n");
 }
 
+static void test_user_agent_without_content_length(void)
+{
+    const char req[] =
+        "GET /user-agent HTTP/1.1\r\n"
+        "Host: localhost:4221\r\n"
+        "Accept: */*\r\n"
+        "User-Agent: manual-test\r\n\r\n";
+    int sv[2], ret;
+    char *out;
+    size_t out_len;
+    send_and_read(req, sizeof(req) - 1, sv, &out, &out_len, &ret);
+    assert(ret == sizeof(req) - 1);
+    assert(out_len == sizeof(req) - 1);
+    assert(memcmp(out, req, out_len) == 0);
+
+    const char *line, *headers, *body;
+    size_t line_len, headers_len, body_len;
+    assert(parse_http_request(out, out_len, &line, &line_len,
+        &headers, &headers_len, &body, &body_len) == 0);
+    assert(body_len == 0);
+    char *response;
+    size_t response_len;
+    assert(construct_response("GET", 3, "/user-agent", 11, "HTTP/1.1", 8,
+        headers, headers_len, body, body_len, NULL,
+        &response, &response_len) == 0);
+    const char expected[] =
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+        "Content-Length: 11\r\n\r\nmanual-test";
+    assert(response_len == sizeof(expected) - 1);
+    assert(memcmp(response, expected, response_len) == 0);
+    free(response);
+    cleanup(sv, out);
+    printf("PASS: test_user_agent_without_content_length\n");
+}
+
 int main(void)
 {
     test_post_with_body();
@@ -323,6 +359,7 @@ int main(void)
     test_large_body();
     test_single_header_no_body();
     test_binary_body();
+    test_user_agent_without_content_length();
     printf("\nAll read_http_request tests passed!\n");
     return 0;
 }

@@ -63,7 +63,7 @@ void test_get_user_agent(void){
         NULL,
         &response, &response_len
     );
-    char *expected_response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 10\r\n\r\ncurl/8.7.1";
+    char *expected_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 10\r\n\r\ncurl/8.7.1";
     assert(ret == 0);
     assert(response_len == strlen(expected_response));
     assert(memcmp(response, expected_response, strlen(expected_response)) == 0);
@@ -141,11 +141,28 @@ void test_post_files(void){
 }
 
 
+static void test_files_without_directory(void){
+    const char *methods[] = {"GET", "POST"};
+    const char expected[] = "HTTP/1.1 500 INTERNAL SERVER ERROR\r\n\r\n";
+    for (size_t i = 0; i < 2; i++){
+        char *response;
+        size_t response_len;
+        assert(construct_response(methods[i], strlen(methods[i]),
+            "/files/manual-test.txt", strlen("/files/manual-test.txt"),
+            "HTTP/1.1", 8, NULL, 0, "hello", 5, NULL,
+            &response, &response_len) == 0);
+        assert(response_len == sizeof(expected) - 1);
+        assert(memcmp(response, expected, response_len) == 0);
+        free(response);
+    }
+    printf("Passed files_without_directory.\n");
+}
+
 int main(){
     test_get_root();
     test_get_echo();
     test_get_user_agent();
     test_get_files();
     test_post_files();
+    test_files_without_directory();
 }
-

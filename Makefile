@@ -29,7 +29,9 @@ SRC_DIR  = src
 
 # Every .c in src/ compiled to a .o
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
+LIB_SRC_FILES = $(filter-out $(SRC_DIR)/main.c, $(SRC_FILES))
 SRC_OBJS  = $(patsubst $(SRC_DIR)/%.c, $(BUILD)/src/%.o, $(SRC_FILES))
+LIB_OBJS  = $(patsubst $(SRC_DIR)/%.c, $(BUILD)/src/%.o, $(LIB_SRC_FILES))
 
 # ── Compile src/*.c → build/src/*.o ──────────────────────────
 
@@ -46,9 +48,9 @@ $(BUILD)/src:
 TEST_FILES  = $(wildcard tests/**/*.c)
 TEST_TARGETS = $(basename $(TEST_FILES))
 
-tests/%: tests/%.c $(SRC_OBJS)
+tests/%: tests/%.c $(LIB_OBJS)
 	@mkdir -p $(BUILD)/$(dir $@)
-	$(CC) $(CFLAGS) $< $(SRC_OBJS) -o $(BUILD)/$@
+	$(CC) $(CFLAGS) $< $(LIB_OBJS) -o $(BUILD)/$@
 	./$(BUILD)/$@
 
 # ── make tests  ──────────────────────────────────────────────

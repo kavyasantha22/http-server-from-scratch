@@ -8,8 +8,9 @@
 size_t get_content_length(const slice_t* headers_segs, size_t headers_segs_size){
 	for (size_t i = 0; i < headers_segs_size; i++){
 		if (headers_segs[i].len >= 16 && memcmp(headers_segs[i].p, "Content-Length: ", 16) == 0){
-			char temp[headers_segs[i].len - 16];
+			char temp[headers_segs[i].len - 16 + 1];
 			memcpy(temp, headers_segs[i].p + 16, headers_segs[i].len - 16);
+			temp[headers_segs[i].len - 16] = '\0';
 			return atoi(temp);
 		}
 	}

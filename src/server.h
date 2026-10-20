@@ -65,7 +65,7 @@ int read_http_request(int client_fd, char **out, size_t *out_len);
  */
 void *handle_client(void *arg);
 
-int server_start(int argc, char **argv);
+int start_server(int argc, char **argv);
 
 
 #endif

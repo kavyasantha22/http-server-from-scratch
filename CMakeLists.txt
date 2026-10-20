@@ -5,6 +5,9 @@ set(CMAKE_C_STANDARD 23)
 
 add_executable(http-server
     src/main.c
+    src/bit_writer.c
+    src/gzip_compression.c
     src/http_parser.c
     src/http_response.c
+    src/server.c
 )

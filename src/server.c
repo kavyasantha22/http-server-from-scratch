@@ -36,12 +36,12 @@ int read_http_request(int client_fd, char **out, size_t *out_len){
 	int bytes_read = 0;
 	*out = malloc(MAX_HEADER_SIZE);
 
-	while (bytes_read < 8192 && header_end_found == -1){
+	while (bytes_read < MAX_HEADER_SIZE && header_end_found == -1){
 		ssize_t cur_bytes_read = recv(client_fd, *out + bytes_read, MAX_HEADER_SIZE - bytes_read, 0);
-		if (cur_bytes_read < 0) return -1;
+		if (cur_bytes_read <= 0) return cur_bytes_read;
 
-		header_end_found = contains_header_end(*out + bytes_read, *out + bytes_read + cur_bytes_read);
 		bytes_read += cur_bytes_read;
+		header_end_found = contains_header_end(*out, *out + bytes_read);
 	}
 	if (header_end_found == -1){
 		printf("HEADER IS TOO BIG.");
@@ -64,20 +64,18 @@ int read_http_request(int client_fd, char **out, size_t *out_len){
 	headers_segs_len = parse_headers(headers, headers_len, headers_segs, headers_segs_len);
 	if (headers_segs_len == (size_t)-1) return -1;
 
-	headers_segs = realloc(headers_segs, headers_segs_len * sizeof(slice_t));
-	if (!headers_segs) return -1;
-
-	// parse headers
-	int body_len = get_content_length(headers_segs, headers_segs_len);
+	size_t body_len = get_content_length(headers_segs, headers_segs_len);
+	free(headers_segs);
+	if (body_len == (size_t)-1) body_len = 0;
 
 	*out_len = (header_end_found + 4) + body_len;
 	*out = realloc(*out, *out_len);
 	if (!*out) return -1;
 
 
-	while (body_bytes_read < body_len){
-		ssize_t cur_bytes_read = recv(client_fd, *out + bytes_read, MAX_HEADER_SIZE - bytes_read, 0);
-		if (cur_bytes_read < 0) return -1;
+	while ((size_t)body_bytes_read < body_len){
+		ssize_t cur_bytes_read = recv(client_fd, *out + bytes_read, body_len - body_bytes_read, 0);
+		if (cur_bytes_read <= 0) return -1;
 
 		bytes_read += cur_bytes_read;
 		body_bytes_read += cur_bytes_read;

@@ -24,24 +24,6 @@ typedef struct {
 } deflate_encoded_t;
 
 
-typedef enum {
-    TOKEN_LITERAL,
-    TOKEN_MATCH
-} lz_token_type_t;
-
-
-typedef struct {
-    lz_token_type_t type;
-    union {
-        struct {
-            size_t length;
-            size_t distance;
-        } match;
-        unsigned char literal;
-    } data;
-} lz_token_t;
-
-
 /*
  * Length symbols: actual match length 3..258 -> symbol 257..285
  * RFC 1951, section 3.2.5
@@ -122,12 +104,19 @@ static uint8_t FIXED_LITERAL_LENGTH_NBITS[288];
 static uint16_t FIXED_DISTANCE_CODE[32];
 static uint8_t FIXED_DIST_NBITS[32];
 
+void huffman_encode(
+    const lz_token_t *tokenised_body, const size_t tokenised_body_len,
+    bit_writer_t *bw
+);
+
+uint32_t crc32(const char *body, const size_t body_size);
+
 
 static deflate_encoded_t deflate_encode_length(size_t length){
     size_t table_len = sizeof(LENGTH_TABLE) / sizeof(deflate_code_entry_t);
 
     for (size_t i = 0; i < table_len; i++){
-        deflate_code_entry_t *current_entry = LENGTH_TABLE + i;
+        const deflate_code_entry_t *current_entry = LENGTH_TABLE + i;
 
         size_t entry_lower_bound = current_entry->base;
         size_t entry_upper_bound = current_entry->base + (1 << current_entry->extra_bits);
@@ -141,16 +130,15 @@ static deflate_encoded_t deflate_encode_length(size_t length){
             return encoded_length;
         }
     }
-    // return (deflate_encoded_t){0};
+    return (deflate_encoded_t){0};
 }
 
 
-static deflate_encoded_t deflate_encode_distance(
-    size_t distance){
+static deflate_encoded_t deflate_encode_distance(size_t distance){
     size_t table_len = sizeof(DIST_TABLE) / sizeof(deflate_code_entry_t);
 
     for (size_t i = 0; i < table_len; i++){
-        deflate_code_entry_t *current_entry = DIST_TABLE + i;
+        const deflate_code_entry_t *current_entry = DIST_TABLE + i;
 
         size_t entry_lower_bound = current_entry->base;
         size_t entry_upper_bound = current_entry->base + (1 << current_entry->extra_bits);
@@ -164,7 +152,7 @@ static deflate_encoded_t deflate_encode_distance(
             return encoded_length;
         }
     }
-    // return (deflate_encoded_t){0};
+    return (deflate_encoded_t){0};
 }
 
 
@@ -345,7 +333,7 @@ void huffman_encode(
     bw_write_bits(bw, FIXED_HUFFMAN_BTYPE, 2);
 
     for (size_t i = 0; i < tokenised_body_len; i++){
-        lz_token_t *current_token = tokenised_body + i;
+        const lz_token_t *current_token = tokenised_body + i;
         if (current_token->type == TOKEN_LITERAL){
             deflate_encoded_t deflated_literal = {
                 .symbol = current_token->data.literal,
@@ -415,7 +403,4 @@ uint32_t crc32(const char *body, const size_t body_size){
 
     return crc ^ 0xFFFFFFFF;
 }
-
-
-
 

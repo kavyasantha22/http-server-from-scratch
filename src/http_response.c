@@ -6,10 +6,63 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdbool.h>
 #include "http_response.h"
 #include "http_parser.h"
+#include "gzip_compression.h"
 
 #define RESPONSE_HEADERS_SIZE 200
+
+static const slice_t *find_in_segs(
+	const slice_t *segs, size_t segs_size,
+	const char *target, size_t target_len
+);
+
+static bool encode_response_body(
+	const slice_t *headers_segs, const size_t headers_segs_len,
+	const char* response_body, const size_t response_body_len,
+	char **encoded_response_body, size_t *encoded_response_body_len
+){
+	const slice_t *encoding_seg = find_in_segs(headers_segs, headers_segs_len, "Accept-Encoding: ", 17);
+	if (encoding_seg == NULL){
+		*encoded_response_body_len = response_body_len;
+		*encoded_response_body = malloc(*encoded_response_body_len);
+		memcpy(*encoded_response_body, response_body, *encoded_response_body_len);
+		return false;
+
+	}else{
+		slice_t accept_encoding_segs[20];
+
+		ssize_t encoding_segs_len = parse_accept_encodings(
+			encoding_seg->p, encoding_seg->len,
+			accept_encoding_segs, 20
+		);
+
+		if (encoding_segs_len == -1){
+			*encoded_response_body_len = response_body_len;
+			*encoded_response_body = malloc(*encoded_response_body_len);
+			memcpy(*encoded_response_body, response_body, *encoded_response_body_len);
+			return false;
+		}
+
+		for (ssize_t i = 0; i < encoding_segs_len; i++){
+			if (
+				accept_encoding_segs[i].len == 4 &&
+				memcmp(accept_encoding_segs[i].p, "gzip", 4) == 0
+			){
+				build_gzip_encoded_body(
+					response_body, response_body_len,
+					encoded_response_body, encoded_response_body_len
+				);
+				return true;
+			}
+		}
+		*encoded_response_body_len = response_body_len;
+		*encoded_response_body = malloc(*encoded_response_body_len);
+		memcpy(*encoded_response_body, response_body, *encoded_response_body_len);
+		return false;
+	}
+}
 
 static int build_response(
 	char **response, size_t *response_len,
@@ -39,7 +92,7 @@ static int build_response(
 	if (response_body != NULL){
 		memcpy(*response + offset, response_body, response_body_len);
 	}
-
+	
 	return 0;
 }
 
@@ -87,20 +140,37 @@ static int handle_echo(const http_request_t *request){
 		const char *response_body = request->target_segs[1].p;
 		const size_t response_body_len = request->target_segs[1].len;
 
+		const char *ok_status_line = "HTTP/1.1 200 OK";
+
+		char *encoded_respond_body;
+		size_t encoded_respond_body_len;
+
+		bool is_gzip = encode_response_body(
+			request->headers_segs, request->headers_segs_len,
+			response_body, response_body_len,
+			&encoded_respond_body, &encoded_respond_body_len
+		);
+
 		response_headers_len += snprintf(
 			response_headers + response_headers_len, 
 			RESPONSE_HEADERS_SIZE - response_headers_len, 
 			"Content-Length: %zu\r\n", 
-			response_body_len
+			encoded_respond_body_len
 		);
 
-		const char *ok_status_line = "HTTP/1.1 200 OK";
+		if (is_gzip){
+			response_headers_len += snprintf(
+				response_headers + response_headers_len, 
+				RESPONSE_HEADERS_SIZE - response_headers_len, 
+				"Content-Encoding: gzip\r\n"
+			);
+		}
 
 		return build_response(
 			request->response, request->response_len,
 			ok_status_line, strlen(ok_status_line),
 			response_headers, response_headers_len,
-			response_body, response_body_len
+			encoded_respond_body, encoded_respond_body_len
 		);
 	}else{
 		const char *not_found_status_line = "HTTP/1.1 404 NOT FOUND";
@@ -119,7 +189,7 @@ static int handle_user_agent(const http_request_t *request){
 		char response_headers[RESPONSE_HEADERS_SIZE];
 		int response_headers_len = 0;
 
-		response_headers_len += snprintf(response_headers, RESPONSE_HEADERS_SIZE, "Content-Type: application/octet-stream\r\n");
+		response_headers_len += snprintf(response_headers, RESPONSE_HEADERS_SIZE, "Content-Type: text/plain\r\n");
 
 		char *user_agent_str = "User-Agent: ";
 		const slice_t *user_agent_slice = find_in_segs(
@@ -133,21 +203,38 @@ static int handle_user_agent(const http_request_t *request){
 
 		const char *response_body = user_agent_slice->p + strlen(user_agent_str);
         const size_t response_body_len = user_agent_slice->len - strlen(user_agent_str);
+		
+		const char *ok_status_line = "HTTP/1.1 200 OK";
+
+		char *encoded_respond_body;
+		size_t encoded_respond_body_len;
+
+		bool is_gzip = encode_response_body(
+			request->headers_segs, request->headers_segs_len,
+			response_body, response_body_len,
+			&encoded_respond_body, &encoded_respond_body_len
+		);
 
 		response_headers_len += snprintf(
 			response_headers + response_headers_len, 
 			RESPONSE_HEADERS_SIZE - response_headers_len, 
 			"Content-Length: %zu\r\n", 
-			response_body_len
+			encoded_respond_body_len
 		);
-		
-		const char *ok_status_line = "HTTP/1.1 200 OK";
+
+		if (is_gzip){
+			response_headers_len += snprintf(
+				response_headers + response_headers_len, 
+				RESPONSE_HEADERS_SIZE - response_headers_len, 
+				"Content-Encoding: gzip\r\n"
+			);
+		}
 
 		return build_response(
 			request->response, request->response_len,
 			ok_status_line, strlen(ok_status_line),
 			response_headers, response_headers_len,
-			response_body, response_body_len
+			encoded_respond_body, encoded_respond_body_len
 		);
 	}else{
 		const char *not_found_status_line = "HTTP/1.1 404 NOT FOUND";
@@ -161,6 +248,13 @@ static int handle_user_agent(const http_request_t *request){
 }
 
 static int handle_files(const http_request_t *request){
+	if (request->files_dir == NULL){
+		const char *status = "HTTP/1.1 500 INTERNAL SERVER ERROR";
+		return build_response(
+			request->response, request->response_len,
+			status, strlen(status), NULL, 0, NULL, 0
+		);
+	}
 	if (request->method_len == 3 && memcmp(request->method, "GET", 3) == 0){
 		char response_headers[RESPONSE_HEADERS_SIZE];
 		int response_headers_len = 0;
@@ -221,21 +315,38 @@ static int handle_files(const http_request_t *request){
 
 		size_t response_body_len = file_size;
 		char *response_body = file_buf;
+		
+		const char *ok_status_line = "HTTP/1.1 200 OK";
+
+		char *encoded_respond_body;
+		size_t encoded_respond_body_len;
+
+		bool is_gzip = encode_response_body(
+			request->headers_segs, request->headers_segs_len,
+			response_body, response_body_len,
+			&encoded_respond_body, &encoded_respond_body_len
+		);
 
 		response_headers_len += snprintf(
 			response_headers + response_headers_len, 
 			RESPONSE_HEADERS_SIZE - response_headers_len, 
 			"Content-Length: %zu\r\n", 
-			response_body_len
+			encoded_respond_body_len
 		);
-		
-		const char *ok_status_line = "HTTP/1.1 200 OK";
+
+		if (is_gzip){
+			response_headers_len += snprintf(
+				response_headers + response_headers_len, 
+				RESPONSE_HEADERS_SIZE - response_headers_len, 
+				"Content-Encoding: gzip\r\n"
+			);
+		}
 
 		return build_response(
 			request->response, request->response_len,
 			ok_status_line, strlen(ok_status_line),
 			response_headers, response_headers_len,
-			response_body, response_body_len
+			encoded_respond_body, encoded_respond_body_len
 		);
 		
 	}else if (request->method_len == 4 && memcmp(request->method, "POST", 4) == 0){
@@ -300,6 +411,9 @@ int construct_response(
 	const char* files_dir, 
 	char **response, size_t *response_len
 ){
+	(void)version;
+	(void)version_len;
+
 	size_t max_segs = 199;
 	slice_t target_segs[max_segs];
 	size_t target_size = parse_target(target, target_len, target_segs, max_segs);
