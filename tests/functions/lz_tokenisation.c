@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 
 void test1(void){
@@ -10,10 +11,10 @@ void test1(void){
     lz_token_t *tokenised_body;
     size_t tokenised_body_len;
 
-    lz_tokenisation(
+    assert(lz_tokenisation(
         test_body, strlen(test_body),
         &tokenised_body, &tokenised_body_len
-    );
+    ) == 0);
 
     lz_token_t expected[] = {
         (lz_token_t) {
@@ -53,6 +54,7 @@ void test1(void){
             assert(expected[i].data.match.distance == tokenised_body[i].data.match.distance);
         }
     }
+    free(tokenised_body);
     printf("Passed test 1\n");
 }
 
@@ -62,10 +64,10 @@ void test2(){
     lz_token_t *tokenised_body;
     size_t tokenised_body_len;
 
-    lz_tokenisation(
+    assert(lz_tokenisation(
         test_body, strlen(test_body),
         &tokenised_body, &tokenised_body_len
-    );
+    ) == 0);
 
     lz_token_t expected[] = {
         (lz_token_t) {
@@ -92,6 +94,7 @@ void test2(){
             assert(expected[i].data.match.distance == tokenised_body[i].data.match.distance);
         }
     }
+    free(tokenised_body);
     printf("Passed test 2\n");
 }
 

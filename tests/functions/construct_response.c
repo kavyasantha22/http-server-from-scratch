@@ -25,6 +25,7 @@ void test_get_root(void){
     assert(ret == 0);
     assert(response_len == strlen(expected_response));
     assert(memcmp(response, expected_response, strlen(expected_response)) == 0);
+    free(response);
     printf("Passed get_root.\n");
 }
 
@@ -46,6 +47,7 @@ void test_get_echo(void){
     assert(ret == 0);
     assert(response_len == strlen(expected_response));
     assert(memcmp(response, expected_response, strlen(expected_response)) == 0);
+    free(response);
     printf("Passed get_echo.\n");
 }
 
@@ -67,6 +69,7 @@ void test_get_user_agent(void){
     assert(ret == 0);
     assert(response_len == strlen(expected_response));
     assert(memcmp(response, expected_response, strlen(expected_response)) == 0);
+    free(response);
     printf("Passed get_user_agent.\n");
 }
 
@@ -136,6 +139,8 @@ void test_post_files(void){
         assert(write(STDOUT_FILENO, buf, n) == n);
     }
     assert(memcmp(buf, test_bytes, strlen(test_bytes)) == 0);
+    close(fd);
+    free(response);
     unlink("test_files/test_post.txt");
     printf("Passed post_files.\n");
 }

@@ -351,6 +351,58 @@ static void test_user_agent_without_content_length(void)
     printf("PASS: test_user_agent_without_content_length\n");
 }
 
+static void test_read_failure_cleanup(void)
+{
+    const char *requests[] = {
+        "",
+        "GET / HTTP/1.1\r\nHost: localhost",
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nab",
+        "invalid\r\n\r\n"
+    };
+    for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); i++){
+        int sv[2];
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+        size_t len = strlen(requests[i]);
+        if (len) assert(write(sv[0], requests[i], len) == (ssize_t)len);
+        assert(shutdown(sv[0], SHUT_WR) == 0);
+        char *out = NULL;
+        size_t out_len = 123;
+        assert(read_http_request(sv[1], &out, &out_len) == (i == 0 ? 0 : -1));
+        assert(out == NULL && out_len == 0);
+        cleanup(sv, out);
+    }
+
+    char *out = NULL;
+    size_t out_len = 123;
+    assert(read_http_request(-1, &out, &out_len) == -1);
+    assert(out == NULL && out_len == 0);
+    printf("PASS: test_read_failure_cleanup\n");
+}
+
+static void test_header_capacity_cleanup(void)
+{
+    char req[MAX_HEADER_SIZE];
+    memset(req, 'A', sizeof(req));
+    int sv[2], ret;
+    char *out;
+    size_t out_len;
+    send_and_read(req, sizeof(req), sv, &out, &out_len, &ret);
+    assert(ret == -1 && out == NULL && out_len == 0);
+    cleanup(sv, out);
+
+    size_t len = (size_t)snprintf(req, sizeof(req), "GET / HTTP/1.1\r\n");
+    for (size_t i = 0; i < 1001; i++){
+        memcpy(req + len, "X: a\r\n", 6);
+        len += 6;
+    }
+    memcpy(req + len, "\r\n", 2);
+    len += 2;
+    send_and_read(req, len, sv, &out, &out_len, &ret);
+    assert(ret == -1 && out == NULL && out_len == 0);
+    cleanup(sv, out);
+    printf("PASS: test_header_capacity_cleanup\n");
+}
+
 int main(void)
 {
     test_post_with_body();
@@ -360,6 +412,8 @@ int main(void)
     test_single_header_no_body();
     test_binary_body();
     test_user_agent_without_content_length();
+    test_read_failure_cleanup();
+    test_header_capacity_cleanup();
     printf("\nAll read_http_request tests passed!\n");
     return 0;
 }

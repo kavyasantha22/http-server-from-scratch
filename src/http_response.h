@@ -25,7 +25,7 @@ typedef struct {
  * ASSUMES (inputs -- all slices come from the parser, see http_parser.h):
  *
  *   method / method_len:
- *     - e.g. "GET", "POST"1
+ *     - e.g. "GET", "POST"
  *     - No spaces, no CRLF.
  *
  *   target / target_len:
@@ -77,7 +77,7 @@ typedef struct {
  *   GET  /echo/{str}        -> 200 OK, text/plain, echoes {str}
  *   GET  /user-agent        -> 200 OK, text/plain, echoes User-Agent value
  *   GET  /files/{filename}  -> 200 OK, application/octet-stream, file contents
- *   POST /files/{filename}  -> 201 Created (WIP)
+ *   POST /files/{filename}  -> 201 Created
  *   anything else           -> 404 Not Found
  */
 int construct_response(

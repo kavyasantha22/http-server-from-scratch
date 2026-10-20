@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <limits.h>
 #include "http_parser.h"
 #include "http_response.h"
 #include "server.h"
@@ -15,73 +16,96 @@ static const char *g_files_dir = NULL;
 
 /**
  * read_http_request
- * Reads raw bytes from client_fd into a newly malloc'd buffer (single recv call).
- * Null-terminates the buffer for convenience, but length is tracked separately.
+ * Reads headers and the Content-Length body into a newly allocated buffer.
+ * The buffer contains raw bytes and is not null-terminated.
  *
  * Params:
  * - client_fd : client socket FD
- * - out       : set to malloc'd buffer containing received bytes (plus '\0')
+ * - out       : set to a malloc'd buffer containing the received bytes
  * - out_len   : set to number of bytes received (excluding the added '\0')
  *
  * Returns:
- * - -1 on recv error (frees *out and sets outputs to safe values)
+ * - -1 on read, parsing, size, or allocation error (resets outputs)
  * -  0 if the peer closed the connection (recv returns 0)
  * -  n (>0) number of bytes received otherwise
  *
- * NOTE: This reads at most 4095 bytes and does not loop; large/multi-packet
- * requests may require repeated reads to be fully robust.
+ * Headers are limited to MAX_HEADER_SIZE; chunked bodies are not supported.
  */
 int read_http_request(int client_fd, char **out, size_t *out_len){
 	int header_end_found = -1;
 	int bytes_read = 0;
+	int result = -1;
+	slice_t *headers_segs = NULL;
+	*out_len = 0;
 	*out = malloc(MAX_HEADER_SIZE);
+	if (!*out) return -1;
 
 	while (bytes_read < MAX_HEADER_SIZE && header_end_found == -1){
 		ssize_t cur_bytes_read = recv(client_fd, *out + bytes_read, MAX_HEADER_SIZE - bytes_read, 0);
-		if (cur_bytes_read <= 0) return cur_bytes_read;
+		if (cur_bytes_read <= 0){
+			if (cur_bytes_read == 0 && bytes_read == 0) result = 0;
+			goto cleanup;
+		}
 
 		bytes_read += cur_bytes_read;
 		header_end_found = contains_header_end(*out, *out + bytes_read);
 	}
 	if (header_end_found == -1){
 		printf("HEADER IS TOO BIG.");
-		return -1;
+		goto cleanup;
 	}
 
 	size_t request_line_len;
 	const char* unused_buf;
-	size_t unused_sze;
+	size_t unused_size;
 	const char *headers;
 	size_t headers_len;
-	parse_http_request(*out, bytes_read, &unused_buf, &request_line_len, &headers, &headers_len, &unused_buf, &unused_sze);
+	if (parse_http_request(*out, bytes_read, &unused_buf, &request_line_len,
+		&headers, &headers_len, &unused_buf, &unused_size) != 0) goto cleanup;
 
 	int body_bytes_read = bytes_read - (header_end_found + 4);
 
 	size_t headers_segs_len = 1000;
-	slice_t* headers_segs = malloc(headers_segs_len * sizeof(slice_t));
-	if (!headers_segs) return -1;
+	headers_segs = malloc(headers_segs_len * sizeof(*headers_segs));
+	if (!headers_segs) goto cleanup;
 
 	headers_segs_len = parse_headers(headers, headers_len, headers_segs, headers_segs_len);
-	if (headers_segs_len == (size_t)-1) return -1;
+	if (headers_segs_len == (size_t)-1) goto cleanup;
 
 	size_t body_len = get_content_length(headers_segs, headers_segs_len);
 	free(headers_segs);
+	headers_segs = NULL;
 	if (body_len == (size_t)-1) body_len = 0;
 
-	*out_len = (header_end_found + 4) + body_len;
-	*out = realloc(*out, *out_len);
-	if (!*out) return -1;
+	size_t header_size = (size_t)header_end_found + 4;
+	if (body_len > (size_t)INT_MAX - header_size) goto cleanup;
+	size_t request_size = header_size + body_len;
+	char *resized = realloc(*out, request_size);
+	if (!resized) goto cleanup;
+	*out = resized;
+	/* This server handles one request; ignore any bytes beyond its body. */
+	if ((size_t)body_bytes_read > body_len){
+		body_bytes_read = (int)body_len;
+		bytes_read = (int)request_size;
+	}
 
 
 	while ((size_t)body_bytes_read < body_len){
 		ssize_t cur_bytes_read = recv(client_fd, *out + bytes_read, body_len - body_bytes_read, 0);
-		if (cur_bytes_read <= 0) return -1;
+		if (cur_bytes_read <= 0) goto cleanup;
 
 		bytes_read += cur_bytes_read;
 		body_bytes_read += cur_bytes_read;
 	}
 
+	*out_len = request_size;
 	return bytes_read;
+
+cleanup:
+	free(headers_segs);
+	free(*out);
+	*out = NULL;
+	return result;
 }
 
 
@@ -117,19 +141,19 @@ void *handle_client(void *arg){
 			break;
 		} 
 
-		parse_http_request(
+		if (parse_http_request(
 			http_request, http_request_len,
 			&request_line, &request_line_len,
 			&headers, &headers_len,
 			&body, &body_len
-		);
+		) != 0) break;
 
-		parse_request_line(
+		if (parse_request_line(
 			request_line, request_line_len,
 			&method, &method_len,
 			&target, &target_len,
 			&version, &version_len
-		);
+		) != 0) break;
 
 		int construct_response_val = construct_response(
 			method, method_len, 
@@ -178,14 +202,8 @@ void *handle_client(void *arg){
 }
 
 /**
- * main
- * Creates a TCP server on 0.0.0.0:4221, accepts a single client connection,
- * then loops:
- *  - read_http_request
- *  - parse_http_request
- *  - parse_request_line
- *  - construct_response
- *  - send() the built response
+ * start_server
+ * Accepts connections on 0.0.0.0:4221 and starts one thread per client.
  *
  * Notes:
  * - Uses SO_REUSEADDR for convenience during frequent restarts.
@@ -202,7 +220,8 @@ int start_server(int argc, char **argv) {
 	
 	// server_fd is a file descriptor for the server socket.
 	// client_addr_len is the size of the client's addr
-	int server_fd, client_addr_len;
+	int server_fd;
+	socklen_t client_addr_len;
 	struct sockaddr_in client_addr;
 	
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -216,6 +235,7 @@ int start_server(int argc, char **argv) {
 	int reuse = 1;
 	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
 		printf("SO_REUSEADDR failed: %s \n", strerror(errno));
+		close(server_fd);
 		return 1;
 	}
 	
@@ -226,16 +246,18 @@ int start_server(int argc, char **argv) {
 	
 	if (bind(server_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) != 0) {
 		printf("Bind failed: %s \n", strerror(errno));
+		close(server_fd);
 		return 1;
 	}
 	
 	int connection_backlog = 128;
 	if (listen(server_fd, connection_backlog) != 0) {
 		printf("Listen failed: %s \n", strerror(errno));
+		close(server_fd);
 		return 1;
 	}
 
-	// process direcoty argument if exist
+	// Process the directory argument if present.
 	for (int i = 1; i < argc; i++){
 		if (strcmp(argv[i], "--directory") == 0 && i + 1 < argc){
 			g_files_dir = argv[i + 1];
@@ -253,7 +275,8 @@ int start_server(int argc, char **argv) {
 	int client_fd;
 
 	while (1){
-		client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *)&client_addr_len);
+		client_addr_len = sizeof(client_addr);
+		client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
 
 		if (client_fd < 0){
 			if (errno == EINTR) continue;
@@ -264,6 +287,7 @@ int start_server(int argc, char **argv) {
 		int *cfd = malloc(sizeof(int));
 		if (!cfd) {
 			printf("failed to malloc client fd");
+			close(client_fd);
 			continue;
 		}
 		*cfd = client_fd;
@@ -272,10 +296,10 @@ int start_server(int argc, char **argv) {
 		if (pthread_create(&tid, NULL, handle_client, cfd) != 0){
 			free(cfd);
 			close(client_fd);
-			printf("failed to create a seperate thread for the client");
+			printf("failed to create a separate thread for the client");
 			continue;
 		}
-		pthread_detach(tid);
+		if (pthread_detach(tid) != 0) pthread_join(tid, NULL);
 	}
 
 	close(server_fd);

@@ -18,15 +18,19 @@ static const slice_t *find_in_segs(
 	const char *target, size_t target_len
 );
 
-static bool encode_response_body(
+/* Returns 1 for gzip, 0 for an uncompressed copy, or -1 on failure. */
+static int encode_response_body(
 	const slice_t *headers_segs, const size_t headers_segs_len,
 	const char* response_body, const size_t response_body_len,
 	char **encoded_response_body, size_t *encoded_response_body_len
 ){
+	*encoded_response_body = NULL;
+	*encoded_response_body_len = 0;
 	const slice_t *encoding_seg = find_in_segs(headers_segs, headers_segs_len, "Accept-Encoding: ", 17);
 	if (encoding_seg == NULL){
 		*encoded_response_body_len = response_body_len;
-		*encoded_response_body = malloc(*encoded_response_body_len);
+		*encoded_response_body = malloc(response_body_len ? response_body_len : 1);
+		if (!*encoded_response_body) return -1;
 		memcpy(*encoded_response_body, response_body, *encoded_response_body_len);
 		return false;
 
@@ -40,7 +44,8 @@ static bool encode_response_body(
 
 		if (encoding_segs_len == -1){
 			*encoded_response_body_len = response_body_len;
-			*encoded_response_body = malloc(*encoded_response_body_len);
+			*encoded_response_body = malloc(response_body_len ? response_body_len : 1);
+			if (!*encoded_response_body) return -1;
 			memcpy(*encoded_response_body, response_body, *encoded_response_body_len);
 			return false;
 		}
@@ -50,15 +55,16 @@ static bool encode_response_body(
 				accept_encoding_segs[i].len == 4 &&
 				memcmp(accept_encoding_segs[i].p, "gzip", 4) == 0
 			){
-				build_gzip_encoded_body(
+				if (build_gzip_encoded_body(
 					response_body, response_body_len,
 					encoded_response_body, encoded_response_body_len
-				);
+				) != 0) return -1;
 				return true;
 			}
 		}
 		*encoded_response_body_len = response_body_len;
-		*encoded_response_body = malloc(*encoded_response_body_len);
+		*encoded_response_body = malloc(response_body_len ? response_body_len : 1);
+		if (!*encoded_response_body) return -1;
 		memcpy(*encoded_response_body, response_body, *encoded_response_body_len);
 		return false;
 	}
@@ -142,20 +148,21 @@ static int handle_echo(const http_request_t *request){
 
 		const char *ok_status_line = "HTTP/1.1 200 OK";
 
-		char *encoded_respond_body;
-		size_t encoded_respond_body_len;
+		char *encoded_response_body;
+		size_t encoded_response_body_len;
 
-		bool is_gzip = encode_response_body(
+		int is_gzip = encode_response_body(
 			request->headers_segs, request->headers_segs_len,
 			response_body, response_body_len,
-			&encoded_respond_body, &encoded_respond_body_len
+			&encoded_response_body, &encoded_response_body_len
 		);
+		if (is_gzip < 0) return 1;
 
 		response_headers_len += snprintf(
 			response_headers + response_headers_len, 
 			RESPONSE_HEADERS_SIZE - response_headers_len, 
 			"Content-Length: %zu\r\n", 
-			encoded_respond_body_len
+			encoded_response_body_len
 		);
 
 		if (is_gzip){
@@ -166,12 +173,14 @@ static int handle_echo(const http_request_t *request){
 			);
 		}
 
-		return build_response(
+		int result = build_response(
 			request->response, request->response_len,
 			ok_status_line, strlen(ok_status_line),
 			response_headers, response_headers_len,
-			encoded_respond_body, encoded_respond_body_len
+			encoded_response_body, encoded_response_body_len
 		);
+		free(encoded_response_body);
+		return result;
 	}else{
 		const char *not_found_status_line = "HTTP/1.1 404 NOT FOUND";
 		return build_response(
@@ -206,20 +215,21 @@ static int handle_user_agent(const http_request_t *request){
 		
 		const char *ok_status_line = "HTTP/1.1 200 OK";
 
-		char *encoded_respond_body;
-		size_t encoded_respond_body_len;
+		char *encoded_response_body;
+		size_t encoded_response_body_len;
 
-		bool is_gzip = encode_response_body(
+		int is_gzip = encode_response_body(
 			request->headers_segs, request->headers_segs_len,
 			response_body, response_body_len,
-			&encoded_respond_body, &encoded_respond_body_len
+			&encoded_response_body, &encoded_response_body_len
 		);
+		if (is_gzip < 0) return 1;
 
 		response_headers_len += snprintf(
 			response_headers + response_headers_len, 
 			RESPONSE_HEADERS_SIZE - response_headers_len, 
 			"Content-Length: %zu\r\n", 
-			encoded_respond_body_len
+			encoded_response_body_len
 		);
 
 		if (is_gzip){
@@ -230,12 +240,14 @@ static int handle_user_agent(const http_request_t *request){
 			);
 		}
 
-		return build_response(
+		int result = build_response(
 			request->response, request->response_len,
 			ok_status_line, strlen(ok_status_line),
 			response_headers, response_headers_len,
-			encoded_respond_body, encoded_respond_body_len
+			encoded_response_body, encoded_response_body_len
 		);
+		free(encoded_response_body);
+		return result;
 	}else{
 		const char *not_found_status_line = "HTTP/1.1 404 NOT FOUND";
 		return build_response(
@@ -295,7 +307,7 @@ static int handle_files(const http_request_t *request){
 			return 1;
 		}
 		size_t file_size = (size_t) st.st_size;
-		char *file_buf = malloc(file_size);
+		char *file_buf = malloc(file_size ? file_size : 1);
 		if (!file_buf){
 			close(fd);
 			return 1;
@@ -318,20 +330,24 @@ static int handle_files(const http_request_t *request){
 		
 		const char *ok_status_line = "HTTP/1.1 200 OK";
 
-		char *encoded_respond_body;
-		size_t encoded_respond_body_len;
+		char *encoded_response_body;
+		size_t encoded_response_body_len;
 
-		bool is_gzip = encode_response_body(
+		int is_gzip = encode_response_body(
 			request->headers_segs, request->headers_segs_len,
 			response_body, response_body_len,
-			&encoded_respond_body, &encoded_respond_body_len
+			&encoded_response_body, &encoded_response_body_len
 		);
+		if (is_gzip < 0){
+			free(file_buf);
+			return 1;
+		}
 
 		response_headers_len += snprintf(
 			response_headers + response_headers_len, 
 			RESPONSE_HEADERS_SIZE - response_headers_len, 
 			"Content-Length: %zu\r\n", 
-			encoded_respond_body_len
+			encoded_response_body_len
 		);
 
 		if (is_gzip){
@@ -342,13 +358,17 @@ static int handle_files(const http_request_t *request){
 			);
 		}
 
-		return build_response(
+		int result = build_response(
 			request->response, request->response_len,
 			ok_status_line, strlen(ok_status_line),
 			response_headers, response_headers_len,
-			encoded_respond_body, encoded_respond_body_len
+			encoded_response_body, encoded_response_body_len
 		);
-		
+
+		free(file_buf);
+		free(encoded_response_body);
+
+		return result;
 	}else if (request->method_len == 4 && memcmp(request->method, "POST", 4) == 0){
 		size_t files_dir_len = strlen(request->files_dir);
 
@@ -360,7 +380,7 @@ static int handle_files(const http_request_t *request){
 		
 		int write_fd = open(file_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (write_fd < 0) {
-			const char *internal_error_status_line = "HTTP/1.1 500 INTERNAL SEVER ERROR";
+			const char *internal_error_status_line = "HTTP/1.1 500 INTERNAL SERVER ERROR";
 			return build_response(
 				request->response, request->response_len, 
 				internal_error_status_line, strlen(internal_error_status_line),
@@ -372,7 +392,7 @@ static int handle_files(const http_request_t *request){
 		size_t bytes_written = write(write_fd, request->body, request->body_len);
 		if (bytes_written != request->body_len){
 			close(write_fd);
-			const char *internal_error_status_line = "HTTP/1.1 500 INTERNAL SEVER ERROR";
+			const char *internal_error_status_line = "HTTP/1.1 500 INTERNAL SERVER ERROR";
 			return build_response(
 				request->response, request->response_len, 
 				internal_error_status_line, strlen(internal_error_status_line),
@@ -413,6 +433,8 @@ int construct_response(
 ){
 	(void)version;
 	(void)version_len;
+	*response = NULL;
+	*response_len = 0;
 
 	size_t max_segs = 199;
 	slice_t target_segs[max_segs];

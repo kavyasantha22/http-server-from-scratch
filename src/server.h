@@ -20,8 +20,8 @@
  *
  *   *out:
  *     - Points to a malloc'd buffer containing the raw request bytes.
- *     - Null-terminated for convenience, but use out_len for the
- *       actual byte count (binary bodies may contain '\0').
+ *     - Not null-terminated; use out_len for the byte count.
+ *       Binary bodies may contain '\0'.
  *     - Caller MUST free(*out) when done.
  *     - On error/close, *out is set to NULL.
  *
@@ -30,13 +30,14 @@
  *     - Set to 0 on error or connection close.
  *
  * RETURNS:
- *   -1   recv() error (errno is set; *out freed and set to NULL)
+ *   -1   read, parsing, size, or allocation error (*out freed and set to NULL)
  *    0   peer closed the connection gracefully
  *   >0   number of bytes received (same value stored in *out_len)
  *
  * NOTE: Currently reads at most MAX_HEADER_SIZE bytes for headers,
- * then a single recv for the body. Large/chunked requests may need
- * multiple reads for full robustness.
+ * then loops until the Content-Length body has been received.
+ * Chunked requests are not supported. A partial request followed by
+ * connection close returns -1.
  */
 int read_http_request(int client_fd, char **out, size_t *out_len);
 

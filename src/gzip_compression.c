@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #include "gzip_compression.h"
 #include "bit_writer.h"
@@ -213,10 +214,13 @@ static uint16_t reverse_bits(uint16_t data, uint8_t nbits){
 }
 
 
-void build_gzip_encoded_body(
+int build_gzip_encoded_body(
     const char *body, size_t body_len,
     char **encoded_body, size_t* encoded_body_len
 ){
+    *encoded_body = NULL;
+    *encoded_body_len = 0;
+    if (body_len > ((size_t)INT_MAX - 64) / 2) return -1;
     init_fixed_huffman_tables();
     init_crc32_table();
     const uint8_t header_bytes[] = {
@@ -226,13 +230,17 @@ void build_gzip_encoded_body(
 
     lz_token_t *tokenised_body;
     size_t tokenised_body_len;
-    lz_tokenisation(
+    if (lz_tokenisation(
         body, body_len,
         &tokenised_body, &tokenised_body_len
-    );
+    ) != 0) return -1;
 
     size_t buf_capacity = 2 * body_len + 64;
     uint8_t *buf = malloc(buf_capacity);
+    if (!buf){
+        free(tokenised_body);
+        return -1;
+    }
     bit_writer_t bw;
     bw_init(&bw, buf, buf_capacity);
 
@@ -264,15 +272,19 @@ void build_gzip_encoded_body(
     *encoded_body_len = bw_bytes_written(&bw);
 
     free(tokenised_body);
+    return 0;
 }
 
 
-void lz_tokenisation(
+int lz_tokenisation(
     const char *body, size_t body_len,
     lz_token_t **tokenised_body, size_t *tokenised_body_len
 ){
-    *tokenised_body = malloc(body_len * sizeof(lz_token_t));
+    *tokenised_body = NULL;
     *tokenised_body_len = 0;
+    if (body_len > SIZE_MAX / sizeof(lz_token_t)) return -1;
+    *tokenised_body = malloc(body_len ? body_len * sizeof(lz_token_t) : 1);
+    if (!*tokenised_body) return -1;
     
     size_t cur_body_idx = 0;
 
@@ -321,7 +333,8 @@ void lz_tokenisation(
             cur_body_idx++;
             (*tokenised_body_len)++;
         }
-    }  
+    }
+    return 0;
 }
 
 

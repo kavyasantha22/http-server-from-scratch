@@ -111,7 +111,7 @@ int parse_http_request(
  *     - No spaces, no CRLF.
  *
  * RETURNS:
- *    0  on success (found exactly two spaces)
+ *    0  on success (found the first two spaces)
  *   -1  if fewer than two spaces were found
  */
 int parse_request_line(
@@ -136,15 +136,14 @@ int parse_request_line(
  * PRODUCES (output) -- each segs[i]:
  *
  *   - The text BETWEEN slashes. Leading '/' is consumed, not stored.
- *   - Segments do NOT contain any '/' characters.
+ *   - A trailing '/' is retained in the final segment.
  *   - No CRLF in any segment.
  *
  *   Examples:
  *     "/echo/abc"    -> segs[0]="echo"  segs[1]="abc"    returns 2
  *     "/files/a.txt" -> segs[0]="files" segs[1]="a.txt"  returns 2
  *     "/"            -> returns 0 (target_len <= 1)
- *     "/echo/"       -> segs[0]="echo"                   returns 1
- *                       (trailing slash is ignored)
+ *     "/echo/"       -> segs[0]="echo/"                  returns 1
  *     "/a//b"        -> segs[0]="a" segs[1]="" segs[2]="b"  returns 3
  *                       (double slash produces an empty segment)
  *
@@ -180,7 +179,7 @@ size_t parse_target(const char* target, size_t target_len, slice_t *segs, size_t
  *     Input: "Host: localhost\r\nUser-Agent: curl\r\nAccept: star-slash-star"
  *     segs[0] = "Host: localhost"      	(len=15)
  *     segs[1] = "User-Agent: curl"     	(len=16)
- *     segs[2] = "Accept: star-slash-star"  (len=11)
+ *     segs[2] = "Accept: star-slash-star"  (len=22)
  *     returns 3
  *
  *   To extract a header value, skip past "Key: " using an offset.
@@ -207,8 +206,8 @@ size_t parse_headers(const char* headers, size_t headers_len, slice_t *segs, siz
  *     bytes just received in the latest recv() call).
  *
  * RETURNS:
- *   true   if \r\n\r\n is found anywhere in [start, end)
- *   false  otherwise
+ *   >=0  byte offset of the first \r\n\r\n in [start, end)
+ *   -1   if no boundary is found
  */
 int contains_header_end(const char *start, const char *end);
 

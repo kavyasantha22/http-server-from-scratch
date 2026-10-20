@@ -117,8 +117,7 @@ size_t parse_target(const char* target, size_t target_len, slice_t *segs, size_t
 	 * Input:  "/echo/abc"   (starts with '/', no CRLF, no spaces)
 	 * Output: segs[0]="echo"  segs[1]="abc"
 	 *
-	 * The leading '/' is consumed. Segments do NOT contain '/'.
-	 * Trailing '/' is ignored (no empty final segment).
+	 * The leading '/' is consumed. A trailing '/' remains in the final segment.
 	 */
 	if (target_len <= 1 || target[0] != '/') return 0;
 	if (max_segs == 0) return (size_t) -1;

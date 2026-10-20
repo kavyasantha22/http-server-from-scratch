@@ -16,12 +16,19 @@ A lightweight HTTP/1.1 server built from scratch in C using POSIX sockets. The s
   - `GET /files/<filename>` — serves a file from a configurable directory as `application/octet-stream`
   - All other routes return `404 Not Found`
 - **Static file serving** from a directory specified via the `--directory` flag
+- **Gzip response compression** for echo, User-Agent, and file GET responses when requested through `Accept-Encoding`
 
 ## Project Structure
 
 ```
 src/
-├── main.c            # Entry point, socket setup, accept loop, client thread handler
+├── main.c            # Entry point
+├── server.c          # Socket setup, accept loop, client thread handler
+├── server.h
+├── gzip_compression.c # Gzip encoding
+├── gzip_compression.h
+├── bit_writer.c      # Bit-level output for compression
+├── bit_writer.h
 ├── http_parser.c     # HTTP request & request-line parsing
 ├── http_parser.h
 ├── http_response.c   # Response construction & routing logic

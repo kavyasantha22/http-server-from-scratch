@@ -29,10 +29,11 @@ void test2(){
 void test3(){
     char *t = "Accept-Encoding: gzip, deflate, br";
     size_t max_segs = 1;
-    slice_t *x = malloc(max_segs * sizeof(size_t));
+    slice_t *x = malloc(max_segs * sizeof(*x));
     assert(x != NULL);
     ssize_t segs_size = parse_accept_encodings(t, 34, x, max_segs);
     assert(segs_size == -1);
+    free(x);
 }
 
 int main(){
